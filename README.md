@@ -1,2 +1,0 @@
-# begamatan.github.io
-plain
