@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html>
+<head>
+	<title>Just Plain Text (at the moment) - Tentang MySQL Query</title>
+</head>
+<body>
+	<section style="max-width: 100%; padding: 0 1rem">
+		<h2><center>Tentang MySQL Query</center></h2>
+		<p>Jadi, ketika sedang bekerja hari ini, saya akhirnya mendapatkan pencerahan. Pada suatu fitur reporting di aplikasi yang saya kerjakan, saya mendapati load data cukup lama. Untuk mendapatkan sekitar 1000 baris data saja dibutuhkan waktu lebih dari 1 detik di lokal saya. Padahal querynya cukup sederhana, memerlukan beberapa kondisi saja.</p>
+		<p>Usut punya usut, saya ternyata mengambil collection dari hasil query tersebut, melakukan looping untuk melakukan suatu perhitungan dan menambahkan hasil perhitungan tersebut ke dalam collection yang saya buat. Hal ini dulu, ketika saya baru nyemplung di project ini, saya lakukan karena kebingungan dengan relasi antartabel di project ini, dan tidak adanya dokumentasi yang jelas. Akhirnya karena terdesak deadline dan minimnya pengetahuan saya tentang query, saya lakukan seadanya.</p>
+		<p>Akhirnya saya memikirkan bagaimana cara optimasi agar query ini berhasil dijalankan tanpa perlu adanya looping lagi ke hasil collection yang didapat. Saya jujur saja, selama ini hanya memahami beberapa clause dalam melakukan query. Yang sering saya pakai paling WHERE, WHERE IN, WHERE NOT IN, JOIN, dan sebagainya. Selebihnya saya sangat mengandalkan Eloquentnya Laravel dalam berquery. Jadi saya akhirnya kembali ke dokumentasi dan mencoba memahami beberapa hal.</p>
+		<p>
+			Jadi, kondisi awalnya kira-kira begini, misalkan ada table a dengan field sebagai berikut
+			<table style="border: 1px solid black">
+				<thead>
+					<tr>
+						<th>Field</th>
+						<th>Type</th>
+					</tr>
+				</thead>
+				<tbody>
+					<tr>
+						<td>id</td>
+						<td>int</td>
+					</tr>
+					<tr>
+						<td>b_id</td>
+						<td>int</td>
+					</tr>
+					<tr>
+						<td>c_id</td>
+						<td>int</td>
+					</tr>
+					<tr>
+						<td>played</td>
+						<td>datetime</td>
+					</tr>
+				</tbody>
+			</table>
+			Dan ada table b dengan field sebagai berikut (Field meta adalah json, salah satu field di dalamnya adalah duration yg harus saya ambil untuk melakukan sebuah perhitungan)
+			<table style="border: 1px solid black">
+				<thead>
+					<tr>
+						<th>Field</th>
+						<th>Type</th>
+					</tr>
+				</thead>
+				<tbody>
+					<tr>
+						<td>id</td>
+						<td>int</td>
+					</tr>
+					<tr>
+						<td>meta</td>
+						<td>json</td>
+					</tr>
+				</tbody>
+			</table>
+			Dan ada table c dengan field sebagai berikut
+			<table style="border: 1px solid black">
+				<thead>
+					<tr>
+						<th>Field</th>
+						<th>Type</th>
+					</tr>
+				</thead>
+				<tbody>
+					<tr>
+						<td>id</td>
+						<td>int</td>
+					</tr>
+					<tr>
+						<td>date_start</td>
+						<td>date</td>
+					</tr>
+					<tr>
+						<td>date_end</td>
+						<td>date</td>
+					</tr>
+					<tr>
+						<td>slot</td>
+						<td>date</td>
+					</tr>
+				</tbody>
+			</table>
+		</p>
+		<p>
+			Dulu, saya generate report dengan membuat satu method yang menerima parameter tanggal dan mengembalikan integer berisi hasil perhitungan. Di dalam method itu saya melakukan query ke tabel a sesuai tanggal tersebut (field yg dipakai tentu saja played). Nah, masalah untuk saya adalah, dibutuhkan satu data berupa hasil perhitungan. Misal data tambahan itu saya namakan revenue, isinya adalah perkalian dari slot di tabel c, dengan jumlah hari yang bisa didapat dari data date_start dan date_end di tabel c, dan dikali dengan duration yang bisa didapat di dalam field meta di tabel b. Semuanya tentu berelasi dengan tabel a. Sementara hasil query saya tadi baru menghasilkan koleksi data dari tabel a yang sudah disortir harian berdasarkan tanggal.
+		</p>
+		<p>
+			Maka, karena waktu itu ingin cepat, saya kemudian mengiterasi koleksi yang saya dapat, mengambil data-data yang dibutuhkan dari relasi ke tabel b dan c, lalu menjumlahkan keseluruhan hasilnya. Jadi saya melakukan query ke database hanya untuk mendapatkan koleksi data untuk dihitung, tanpa mendapatkan hasil perhitungan itu sendiri. Misal, untuk menghitung slot dikali jumlah hari di tabel c, saya melakukannya dengan fungsi php terpisah (Memanfaatkan Carbon tentu saja, hehe), lalu mengalikannya dengan data duration yang ada di dalam json meta di tabel b. Ada beberapa perhitungan lain yang ga perlu dijabarkan di sini karena tidak penting untuk tulisan ini. Tapi intinya begitu.
+		</p>
+		<p>
+			Baru hari ini saya sadari, perhitungan-perhitungan itu bisa saya lakukan langsung dengan menggunakan query SQL (dalam kasus ini saya pakai MySQL versi 5.7). Jadi saat query Eloquent bagian sortir data dengan tanggal selesai, sebelum mengambil koleksi data, saya tinggal melakukan join dari tabel a ke tabel b dan c untuk mendapatkan data yang saya butuhkan. Misal, untuk duration di dalam json meta di tabel b, saya tinggal memanggilnya dengan b.meta->".$duration". Untuk total hari di tabel c, saya tinggal menggunakan fungsi MySQL DATEDIFF, sebagai contoh: DATEDIFF(c.date_start,c.date_end) + 1. Dalam statement selectnya, semua data tersebut tinggal saya kalikan dan saya satukan sebagai field revenue. Kira-kira raw query selectnya adalah 'b.meta->".$duration" * (DATEDIFF(c.date_start,c.date_end) + 1) * c.slot as revenue'. Maka saya sudah mendapatkan koleksi data dengan field tambahan bernama revenue. Selanjutnya saya menggunakan satu method yang sangat bermanfaat dari class Collection Laravel, namanya tentu saja, sum(). Sebenarnya ada satu faktor lagi saat melakukan perhitungan revenue, dan saya terbantu dengan fitur CASE statement dari query SQL, yang mirip-mirip lah dengan if else atau switch di php. Tapi tidak akan saya tulis karena ribet dan capek *emot ketawa miring*.
+		</p>
+		<p>
+			Setelah semua loop di sisi php saya pindah ke query sql, saya melakukan test sederhana untuk mengukur waktu eksekusi. Sebelum saya pindahkan, untuk sekitar 1000 baris data, saya memerlukan waktu rata-rata 1 sampai 1.5 detik. Setelah saya pindahkan, waktu eksekusi terlama hanya sekitar 0.5 detik, rata-rata di angka 0.2 s.d 0.3 detik. Saya cukup puas dengan hasilnya, maka saya refactor sedikit, saya buat unit test sederhana karena sudah sore, saya jalankan dan hasilnya hijau, maka saya bisa commit kerjaan saya dan beres-beres pulang.
+		</p>
+		<p>
+			Demikian curhatan saya ini, maaf jika membingungkan, saya hanya ingin mulai konsisten menulis lagi di tahun 2020 ini. Btw, semua hal yang saya ketik di atas saya lakukan di Laravel 5.8 dan MySQL 5.7. Kalau ada yang keliru, silahkan dikoreksi. Terima kasih.
+		</p>
+	</section>
+</body>
+</html>
